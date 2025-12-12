@@ -62,11 +62,24 @@ def store_operator_message(message_text: str, user_ph: str, external_msg_id: str
     from tasks import sync_operator_message_to_graph_task
     
     with engine.begin() as conn:
-        # Get conversation
+        # Get or create conversation
         result = conn.execute(
             select(conversation.c.id).where(conversation.c.phone == str(user_ph))
         )
-        conversation_id = result.scalar_one()
+        conversation_id = result.scalar_one_or_none()
+        
+        # Create conversation if it doesn't exist
+        if conversation_id is None:
+            _logger.info(f"No conversation found for {user_ph}, creating new one")
+            result = conn.execute(
+                insert(conversation).values({
+                    "phone": str(user_ph),
+                    "name": None,
+                    "human_intervention_required": True  # Operator is messaging, so set this
+                }).returning(conversation.c.id)
+            )
+            conversation_id = result.scalar_one()
+            _logger.info(f"Created new conversation {conversation_id} for {user_ph}")
         
         # Store in database
         row = {

@@ -1,28 +1,42 @@
-import sqlalchemy
-from sqlalchemy import create_engine, Table, MetaData
+"""
+Synchronous SQLAlchemy Database Module
+Compatible with: Windows, Linux, macOS
+Supports: Multiple uvicorn workers, Celery workers, FastAPI async endpoints
+"""
+
+from sqlalchemy import create_engine, text, MetaData, Table
 from sqlalchemy.pool import QueuePool
 from config import DB_URL, logger
-import threading
 import os
+import threading
+from typing import Optional
 
 _logger = logger(__name__)
 _init_lock = threading.Lock()
-# Will be initialized lazily per-process
-_engine = None
-_metadata = None
+
+# Process-local globals
+_engine: Optional[create_engine] = None
+_metadata: Optional[MetaData] = None
 _tables = {}
 _process_id = None
 
 
 def _initialize_db():
-    """Initialize database engine and metadata for current process"""
+    """
+    Initialize database engine and metadata (SYNCHRONOUS).
+    
+    This works across process boundaries because:
+    1. Sync engines can be recreated in each worker process
+    2. No async event loop conflicts
+    3. Thread-safe initialization
+    """
     global _engine, _metadata, _tables, _process_id
     
     current_pid = os.getpid()
     
-    # If engine exists but we're in a different process (after fork)
+    # Handle process fork (uvicorn workers, celery workers)
     if _engine is not None and _process_id != current_pid:
-        _logger.info(f"Fork detected (PID {_process_id} → {current_pid}), creating new engine")
+        _logger.info(f"🔄 Fork detected (PID {_process_id} → {current_pid}), creating new engine")
         try:
             _engine.dispose()
         except Exception as e:
@@ -30,66 +44,114 @@ def _initialize_db():
         finally:
             _engine = None
             _metadata = None
-            _tables = {} 
-
+            _tables = {}
+    
     if _engine is None:
-        _logger.info(f"Initializing database for PID {current_pid}")
+        _logger.info(f"🔗 Initializing database for PID {current_pid}")
         
+        # Create sync engine (psycopg2 driver - default)
         _engine = create_engine(
-            f"postgresql+psycopg2://{DB_URL}",
+            DB_URL,  # postgresql://postgres:pass@host:5432/db
             poolclass=QueuePool,
             pool_pre_ping=True,
-            pool_size=5,              # 5 connections per worker
-            max_overflow=10,          # +10 temporary connections
+            pool_size=10,
+            max_overflow=20,
             pool_recycle=300,
             pool_timeout=30,
             connect_args={
-                "sslmode": "require",
                 "connect_timeout": 10,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5,
-            }
+            },
+            # Performance tuning
+            echo=False,
+            future=True,
         )
         
-        # Reflect metadata
+        # Initialize metadata
         _metadata = MetaData()
-        _metadata.reflect(bind=_engine)
+        
+        try:
+            _metadata.reflect(bind=_engine)
+            _logger.info("✅ Metadata reflected successfully")
+        except Exception as e:
+            _logger.error(f"❌ Metadata reflection failed: {e}")
+            raise
         
         # Cache table references
-        _tables['user'] = _metadata.tables["user"]
-        _tables['user_conversation'] = _metadata.tables["user_conversation"]
-        _tables['message'] = _metadata.tables["message"]
-        _tables['conversation'] = _metadata.tables["conversation"]
-        _tables['sample_library'] = _metadata.tables["sample_media_library"]
+        try:
+            table_names = ["user", "user_conversation", "message", "conversation"]
+            for name in table_names:
+                if name in _metadata.tables:
+                    _tables[name] = _metadata.tables[name]
+            
+            # Media/catalog tables
+            if "sample_media_library" in _metadata.tables:
+                _tables['sample_library'] = _metadata.tables["sample_media_library"]
+            if "media_files" in _metadata.tables:
+                _tables['media_files'] = _metadata.tables["media_files"]
+            if "categories" in _metadata.tables:
+                _tables['categories'] = _metadata.tables["categories"]
+            
+            _logger.info(f"📋 Cached {len(_tables)} tables")
+        except KeyError as e:
+            _logger.error(f"Table cache failed: {e}")
         
         _process_id = current_pid
         
         # Test connection
-        with _engine.connect() as conn:
-            conn.execute(sqlalchemy.text("SELECT 1"))
-        
-        _logger.info(f"✅ Database initialized for PID {current_pid} (pool_size=5, max_overflow=10)")
+        try:
+            with _engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            _logger.info(f"✅ Database ready for PID {current_pid} (psycopg2, {len(_tables)} tables)")
+        except Exception as e:
+            _logger.error(f"❌ Connection test failed: {e}")
+            raise
 
 
 def get_engine():
-    """Get database engine (lazy initialization)"""
+    """
+    Get database engine with lazy initialization.
+    
+    Thread-safe and process-safe.
+    Safe to call from:
+    - Multiple uvicorn workers
+    - Multiple celery workers
+    - FastAPI endpoints (via run_in_threadpool)
+    - Module imports
+    """
     if _engine is None or _process_id != os.getpid():
-        _initialize_db()
+        with _init_lock:
+            # Double-check pattern
+            if _engine is None or _process_id != os.getpid():
+                _initialize_db()
     return _engine
 
 
+def dispose_engine():
+    """Close all connections (call on shutdown)"""
+    global _engine
+    if _engine:
+        _engine.dispose()
+        _logger.info("✅ Database connections closed")
+
+
 def __getattr__(name):
-    if name in ('engine', 'user', 'user_conversation', 'message', 'conversation', 'sample_library'):
-        if _engine is None or _process_id != os.getpid():
-            with _init_lock:
-                # Double-check pattern
-                if _engine is None or _process_id != os.getpid():
-                    _initialize_db()
+    """
+    Lazy attribute access for engine and tables.
+    
+    Usage:
+        from db import engine, user, message
+    """
+    allowed_names = [
+        'engine', 'user', 'user_conversation', 'message', 'conversation',
+        'sample_library', 'media_files', 'categories',
+    ]
+    
+    if name in allowed_names:
+        engine = get_engine()
         
         if name == 'engine':
-            return _engine
+            return engine
         else:
             return _tables.get(name)
     

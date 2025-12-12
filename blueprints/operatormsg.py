@@ -1,21 +1,46 @@
-from flask import Blueprint, request, jsonify
-from config import logger, BACKEND_BASE_URL
+import asyncio
+import httpx
+import json
+import logging
+import os
+import tempfile
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError, OperationalError
+from typing_extensions import Annotated
+
+from config import BACKEND_BASE_URL, logger
+from db import conversation, engine, message
 from utility import store_operator_message
 from utility.whatsapp import send_message, upload_media, send_media, typing_indicator
-from typing import Tuple, Optional, Dict
-from db import engine, conversation, message
-from sqlalchemy import select
-from sqlalchemy.exc import OperationalError, DBAPIError
-import tempfile
-import requests
-import os
-import json
-import time
 
-operator_bp = Blueprint('operatormsg', __name__)
+router = APIRouter(prefix="/api/v1", tags=["Operator Messages"])
+legacy_router = APIRouter(tags=["Legacy Operator Messages"])
 _logger = logger(__name__)
 
+# Pydantic models for request validation
+class OperatorMessageRequest(BaseModel):
+    """Request model for operator messages (from operator UI)"""
+    receiverPhone: str = Field(..., description="Recipient phone number")
+    message: Optional[str] = Field(None, description="Message text")  # Made optional
+    senderId: int = Field(..., description="Operator/sender ID")
+    media: Optional[str] = Field(None, description="Media file ID")
+    mimeType: Optional[str] = Field(None, description="Media MIME type")
+
+class OperatorMessage(BaseModel):
+    """Internal model for message processing"""
+    message: str = Field(..., description="The message text")
+    phone: str = Field(..., description="Recipient's phone number")
+    messageId: Optional[str] = Field(None, description="Optional message ID")
+    media: Optional[Dict[str, str]] = Field(None, description="Optional media information")
+
 def get_media_type_and_extension(mime_type: str) -> Tuple[str, str]:
+    """Map MIME type to WhatsApp media type and file extension"""
     mime_mapping = {
         "image/jpeg": ("image", ".jpg"),
         "image/jpg": ("image", ".jpg"),
@@ -38,181 +63,254 @@ def get_media_type_and_extension(mime_type: str) -> Tuple[str, str]:
     }
     return mime_mapping.get(mime_type.lower(), ("document", ".bin"))
 
-
-def download_operator_media(file_id: str, mime_type: str) -> Optional[Dict]:
+async def download_operator_media(file_id: str, mime_type: str) -> Optional[Dict]:
+    """Download media file from backend server"""
     download_url = f"{BACKEND_BASE_URL}api/v1/get-sent-media"
     
     try:
         _logger.info(f"Downloading media: fileId={file_id}, mimeType={mime_type}")
         
-        response = requests.get(
-            download_url,
-            params={"fileId": file_id, "type": mime_type},
-            stream=True,
-            timeout=30
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                download_url,
+                params={"fileId": file_id, "type": mime_type}
+            )
         
-        if not response.ok:
-            _logger.error(f"Failed to download media. Status: {response.status_code}")
-            return {"success": False, "error": f"Download failed with status {response.status_code}"}
+        if response.status_code != 200:
+            _logger.error(f"Failed to download media: {response.status_code} - {response.text}")
+            return None
+            
+        content_type = response.headers.get('content-type', '')
+        content = response.content
         
+        if not content:
+            _logger.error("Empty content in media response")
+            return None
+            
         media_type, file_ext = get_media_type_and_extension(mime_type)
         
-        temp_file = tempfile.NamedTemporaryFile(
-            delete=False, 
-            suffix=file_ext,
-            prefix=f"operator_media_{file_id}_"
-        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+            temp_file.write(content)
+            temp_file_path = temp_file.name
         
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                temp_file.write(chunk)
-        
-        temp_file.close()
-        file_path = temp_file.name
-        file_size = os.path.getsize(file_path)
-        
-        _logger.info(f"Media downloaded successfully: {file_path} ({file_size} bytes)")
-               
-        return {
-            "success": True,
-            "file_path": file_path,
-            "media_type": media_type,
-            "file_size": file_size
-        }
-        
-    except requests.Timeout:
-        _logger.error(f"Download timeout for file {file_id}")
-        return {"success": False, "error": "Download timeout"}
-        
-    except requests.RequestException as e:
-        _logger.exception(f"Failed to download media {file_id}: {str(e)}")
-        return {"success": False, "error": str(e)}
-        
+        try:
+            media_id = upload_media(temp_file_path, mime_type)
+            if not media_id:
+                _logger.error("Failed to upload media to WhatsApp")
+                return None
+                
+            return {
+                "id": media_id,
+                "type": media_type,
+                "mime_type": mime_type,
+                "local_path": temp_file_path
+            }
+            
+        except Exception as e:
+            _logger.error(f"Error uploading media: {str(e)}", exc_info=True)
+            return None
+            
+        finally:
+            try:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+            except Exception as e:
+                _logger.warning(f"Error cleaning up temp file: {str(e)}")
+                
     except Exception as e:
-        _logger.exception(f"Unexpected error downloading media {file_id}: {str(e)}")
-        return {"success": False, "error": str(e)}
+        _logger.error(f"Request error downloading media: {str(e)}")
+        return None
 
-
-def store_operator_message_with_retry(message_text: str, phone: str, message_id: str = None, **kwargs):
-    """
-    Store operator message with automatic retry on connection errors
-    
-    IMPORTANT: This already uses async Celery task for graph sync via store_operator_message()
-    """
+async def store_operator_message_with_retry(message_text: str, phone: str, message_id: str = None, **kwargs):
+    """Store operator message with automatic retry on connection errors"""
     max_retries = 3
+    retry_delay = 1
     
     for attempt in range(max_retries):
         try:
-            # This internally queues sync_operator_message_to_graph_task via Celery
-            store_operator_message(message_text, phone, message_id, **kwargs)
-            return  # Success!
+            store_operator_message(
+                message_text=message_text,
+                user_ph=phone,
+                external_msg_id=message_id,
+                **kwargs
+            )
+            return True
             
         except (OperationalError, DBAPIError) as e:
-            error_msg = str(e).lower()
-            is_connection_error = any(
-                keyword in error_msg 
-                for keyword in ['ssl', 'connection', 'closed', 'broken', 'timeout', 'network']
+            if attempt == max_retries - 1:
+                _logger.error(f"Failed to store operator message after {max_retries} attempts: {str(e)}")
+                raise
+                
+            _logger.warning(f"Database error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            await asyncio.sleep(retry_delay * (attempt + 1))
+            
+    return False
+
+@router.get("/operatormsg")
+async def operatormsg_health():
+    """Health check for operator message endpoint"""
+    return PlainTextResponse("THIS ENDPOINT IS UP AND RUNNING", status_code=200)
+
+@router.post("/operator-message")
+async def operatormsg(message_data: OperatorMessage):
+    """Handle operator messages with full context sync (CORE LOGIC)"""
+    try:
+        _logger.info(f"Received operator message: {message_data.model_dump_json(indent=2)}")
+        
+        message_text = message_data.message.strip()
+        phone = message_data.phone.strip()
+        
+        if not phone:
+            _logger.error("Missing required field: phone")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number is required"
+            )
+        
+        if not message_text and not message_data.media:
+            _logger.error("Empty message with no media")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message text or media is required"
             )
             
-            if is_connection_error and attempt < max_retries - 1:
-                backoff = 0.1 * (2 ** attempt)
-                _logger.warning(f"DB store failed (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
-                _logger.info(f"Retrying in {backoff:.2f}s...")
-                time.sleep(backoff)
-                continue
+        media_data = None
+        if message_data.media and 'id' in message_data.media and 'mime_type' in message_data.media:
+            media_id = message_data.media['id']
+            mime_type = message_data.media['mime_type']
             
-            # Not a connection error or out of retries
-            _logger.error(f"Failed to store operator message after {attempt + 1} attempts")
-            raise
-   
-@operator_bp.route("/operatormsg", methods=["GET","POST"])
-def operatormsg():
-    """
-    Handle operator messages with full context sync
-    
-    CRITICAL FIX: Graph sync now happens asynchronously via Celery task
-    in store_operator_message() → sync_operator_message_to_graph_task
-    """
-    if request.method == "POST":
-        data = request.get_json(force=True)
+            if media_id and mime_type:
+                if media_id.startswith("file-"):
+                    media_data = await download_operator_media(media_id, mime_type)
+                    if not media_data:
+                        _logger.error(f"Failed to process media: {media_id}")
+                        raise HTTPException(
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="Failed to process media"
+                        )
+                else:
+                    media_data = message_data.media
         
-        _logger.info(f"DATA RECEIVED: {json.dumps(data, indent=2)}")
-        
-        if not data:
-            return jsonify({"status": "error", "message": "No data provided"}), 400
-    
-        required = ["receiverPhone", "message", "senderId"]
-        missing = [f for f in required if f not in data]
-        
-        if missing:
-            return jsonify({"status": "error", "message": f"Missing: {', '.join(missing)}"}), 400
-        
-        phone = data["receiverPhone"]
-        message = data["message"]
-        sender_id = data["senderId"]
-        media = data.get("media", None)
-        mime_type = data.get("mimeType", None)
-
-        if media and mime_type:
-            # Handle media message
-            downloaded_content = download_operator_media(media, mime_type)
-
-            if downloaded_content["success"]:
-                file_path = downloaded_content["file_path"]
-                media_type = downloaded_content["media_type"]
-
-                try:
-                    # Upload media to WhatsApp
-                    media_id = upload_media(file_path)
-                    if not media_id:
-                        raise Exception("Media upload failed, no media ID returned")
-                    
-                    # Send media message
-                    response = send_media(media_type, phone, media_id, message)
-                    message_id = response.get("messages", [{}])[0].get('id') if response else None
-
-                    # CRITICAL FIX: This now uses async Celery task internally
-                    # store_operator_message() → sync_operator_message_to_graph_task.apply_async()
-                    store_operator_message_with_retry(
-                        message, phone, message_id, 
-                        media_id=media_id, 
-                        mime_type=mime_type, 
-                        sender_id=sender_id
-                    )
-                    
-                    _logger.info(f"Operator media message queued for graph sync: {phone}")
-                    
-                    return jsonify({"status": "success", "message_id": message_id})
-
-                except Exception as e:
-                    _logger.error(f"Failed to send operator media message: {e}")
-                    return jsonify({"status": "error", "error": str(e)}), 500
-
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        _logger.info(f"Temporary file {file_path} deleted")
-                        
+        if media_data and 'id' in media_data and 'type' in media_data:
+            response = send_media(
+                phone=phone,
+                media_id=media_data['id'],
+                media_type=media_data['type'],
+                caption=message_text if message_text else None
+            )
         else:
-            # Handle text message    
-            try:
-                # Send to WhatsApp
-                response = send_message(phone, message)
-                message_id = response.get("messages", [{}])[0].get('id') if response else None
+            response = send_message(phone, message_text)
+            
+        message_id = response.get("messages", [{}])[0].get('id') if response else None
+        
+        try:
+            await store_operator_message_with_retry(
+                message_text=message_text,
+                phone=phone,
+                message_id=message_id,
+                media=media_data
+            )
+            
+            _logger.info(f"Successfully queued operator message for {phone}")
+            return {
+                "status": "success",
+                "message": "Message queued for processing",
+                "message_id": message_id
+            }
+            
+        except Exception as e:
+            _logger.error(f"Error storing operator message: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to process message"
+            )
+            
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        _logger.error(f"Unexpected error in operatormsg: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
 
-                # CRITICAL FIX: This now uses async Celery task internally
-                # Graph sync happens via sync_operator_message_to_graph_task in background
-                store_operator_message_with_retry(message, phone, message_id, sender_id=sender_id)
-                
-                _logger.info(f"Operator text message queued for graph sync: {phone}")
 
-                return jsonify({"status": "success", "message_id": message_id}), 200
+# Legacy compatibility endpoints
+@legacy_router.get("/operatormsg")
+async def legacy_operatormsg_health():
+    """Health check for legacy operator message endpoint"""
+    return PlainTextResponse("THIS ENDPOINT IS UP AND RUNNING", status_code=200)
 
-            except Exception as e:
-                _logger.error(f"Failed to send operator message: {e}")
-                return jsonify({"status": "error", "error": str(e)}), 500
-    
-    elif request.method == "GET":
-        return "THIS ENDPOINT IS UP AND RUNNING", 200
+# DIAGNOSTIC VERSION - Accepts raw request to see what's coming in
+@legacy_router.post("/operatormsg")
+@legacy_router.post("/operator-message")
+async def legacy_operatormsg(request: Request):
+    """
+    Legacy operator message endpoint with diagnostic logging.
+    This version logs the raw request body to diagnose validation issues.
+    """
+    try:
+        # Get raw body for logging
+        raw_body = await request.body()
+        _logger.info(f"=== RAW REQUEST BODY ===")
+        _logger.info(f"Content-Type: {request.headers.get('content-type')}")
+        _logger.info(f"Body bytes: {raw_body}")
+        
+        # Try to parse as JSON
+        try:
+            body_json = json.loads(raw_body)
+            _logger.info(f"Parsed JSON: {json.dumps(body_json, indent=2)}")
+            _logger.info(f"JSON keys: {list(body_json.keys())}")
+        except json.JSONDecodeError as e:
+            _logger.error(f"Failed to parse JSON: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid JSON: {str(e)}"
+            )
+        
+        # Try to validate against OperatorMessageRequest
+        try:
+            request_data = OperatorMessageRequest(**body_json)
+            _logger.info(f"✅ Successfully validated as OperatorMessageRequest")
+            _logger.info(f"Validated data: {request_data.model_dump_json(indent=2)}")
+        except ValidationError as e:
+            _logger.error(f"❌ Pydantic validation failed:")
+            _logger.error(f"Validation errors: {e.errors()}")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "Request validation failed",
+                    "errors": e.errors(),
+                    "received_data": body_json
+                }
+            )
+        
+        # Map media fields if present
+        media_dict = None
+        if request_data.media and request_data.mimeType:
+            media_dict = {
+                "id": request_data.media,
+                "mime_type": request_data.mimeType
+            }
+            _logger.info(f"Mapped media: {media_dict}")
+        
+        # Map to internal format
+        message_data = OperatorMessage(
+            message=request_data.message or "",  # Convert None to empty string
+            phone=request_data.receiverPhone,
+            media=media_dict
+        )
+        
+        _logger.info(f"Mapped to internal format: {message_data.model_dump_json(indent=2)}")
+        
+        # Call the main handler
+        return await operatormsg(message_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        _logger.error(f"Unexpected error in legacy endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error: {str(e)}"
+        )

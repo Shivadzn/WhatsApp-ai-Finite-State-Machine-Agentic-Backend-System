@@ -24,7 +24,7 @@ def callIntervention(state, user_ph: str):
             if not already_required:
                 # Call operator notification service
                 response = requests.post(
-                    f"{AI_BACKEND_URL}/takeover", json={"phone": user_ph}
+                    f"{AI_BACKEND_URL}/api/v1/takeover", json={"phone": user_ph}
                 )
                 response = response.json()
                 

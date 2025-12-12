@@ -1,0 +1,386 @@
+﻿[
+    {
+        "ValidationDetails":  "",
+        "Name":  "Multi-turn Conversation - Context Retention",
+        "Time":  22.2226699,
+        "Message":  "Hi",
+        "Expected":  "Send greeting + one sample (AI), remember context",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Follow-up Without Repeating Info",
+        "Time":  18.3412983,
+        "Message":  "aur dikhao",
+        "Expected":  "Send next sample (3D) without re-greeting",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Reference Previous Message",
+        "Time":  14.4849392,
+        "Message":  "pehle wala achha tha",
+        "Expected":  "Acknowledge previous sample (3D), ask what they liked",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Complex Multi-Question Query",
+        "Time":  14.2906517,
+        "Message":  "mujhe 3D video chahiye, kitne din lagenge aur price kya hai?",
+        "Expected":  "Ask about number of functions first (don\u0027t answer everything at once)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Sudden English Switch Mid-Conversation",
+        "Time":  8.171182,
+        "Message":  "Can you speak in English from now on?",
+        "Expected":  "Switch to English, continue conversation naturally",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "English Question After Language Switch",
+        "Time":  8.0395567,
+        "Message":  "What\u0027s the price for AI video?",
+        "Expected":  "Respond in English, ask about functions",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Mixed Language (Code-Switching)",
+        "Time":  8.0395785,
+        "Message":  "yaar can you send me pricing details for 2D videos?",
+        "Expected":  "Match user\u0027s mixed style or stay consistent with current language",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Pure Hindi (Devanagari Script)",
+        "Time":  8.0535376,
+        "Message":  "मुझे एआई वीडियो के बारे में बताओ",
+        "Expected":  "Respond in Hinglish (English alphabets) as per guidelines",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Direct Pricing Without Context",
+        "Time":  8.0310525999999989,
+        "Message":  "price batao",
+        "Expected":  "Ask which type (AI/3D/2D) user prefers first",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Pricing With Specific Type",
+        "Time":  8.0667651,
+        "Message":  "AI video ka price kya hai?",
+        "Expected":  "Ask about number of functions",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Complex Bargaining with Multiple Points",
+        "Time":  10.0517857,
+        "Message":  "bhai ye to bahut mehnga hai, aur koi discount mil sakta hai? mere pass budget bahut kam hai",
+        "Expected":  "Use ONE bargaining point (fast delivery OR quality OR competitive edge), not all",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Price Comparison Question",
+        "Time":  10.327110399999999,
+        "Message":  "market mein to 2000 mein mil raha hai, tumhara itna kyun?",
+        "Expected":  "Justify pricing with value proposition (quality, delivery time, modifications)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Functions + Family Caricature + Extra Complexity",
+        "Time":  10.082827199999999,
+        "Message":  "mere paas 6 functions hain aur family caricature bhi chahiye, total kitna hoga?",
+        "Expected":  "Calculate: base price + (2 extra functions × 500) + 799 family caricature, ask which type",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Completely Gibberish Message",
+        "Time":  8.1291922,
+        "Message":  "asdfghjkl qwerty zxcvbn",
+        "Expected":  "Ask for clarification, don\u0027t escalate to operator",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Very Long Message (200+ characters)",
+        "Time":  10.0440053,
+        "Message":  "Haan bhai maine suna hai ki tum log invitation videos banate ho toh mujhe ye batao ki main apni shaadi ke liye ek video banana chahta hoon jo bahut hi unique ho aur sabko pasand aaye aur usme mere aur meri dulhan ki photos ho aur ek achha sa background music ho aur text bhi change kar sakte ho aur kitne din mein ready hoga aur price bhi batana",
+        "Expected":  "Process and respond naturally, extract key intents (video type, customization, timeline, pricing)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Message With Special Characters \u0026 Emojis",
+        "Time":  8.3371739,
+        "Message":  "Hey!!! 😍💕 Mujhe urgent video chahiye!!! 🔥🔥 ASAP!!! 🚨",
+        "Expected":  "Respond calmly, explain 1-2 day timeline, handle urgency appropriately",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Typos and Misspellings",
+        "Time":  8.0648146,
+        "Message":  "muze sampls bejo 2d ka pryce btao",
+        "Expected":  "Understand intent despite typos, respond appropriately",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Single Word Queries",
+        "Time":  6.1075962,
+        "Message":  "price",
+        "Expected":  "Ask which type of video, don\u0027t assume",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Question Mark Only",
+        "Time":  6.1159272,
+        "Message":  "?",
+        "Expected":  "Ask how can I help, provide guidance",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Multiple Questions in Rapid Fire",
+        "Time":  10.074974899999999,
+        "Message":  "price? delivery? changes possible? family caricature? refund policy?",
+        "Expected":  "Address systematically, ask which type first or provide overview",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Clear Custom Request",
+        "Time":  8.0810014,
+        "Message":  "mujhe ek custom video banana hai jo bilkul alag ho",
+        "Expected":  "Silent escalation (empty content), operator_active = true",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Specific Custom Video Request",
+        "Time":  8.2211261,
+        "Message":  "main ek video dekha tha uske jaisa banana hai price kya hoga?",
+        "Expected":  "Silent escalation to operator",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Slide Mixing Request",
+        "Time":  10.1877525,
+        "Message":  "kya main different videos ke slides mix kar sakta hoon?",
+        "Expected":  "Explain why not recommended, then silent escalation",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Services Outside Scope",
+        "Time":  8.0826982999999988,
+        "Message":  "kya tum photographer bhi provide karte ho wedding ke liye?",
+        "Expected":  "Silent escalation to operator",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Same Day Urgent Delivery",
+        "Time":  8.5308411,
+        "Message":  "mujhe aaj hi video chahiye urgent hai",
+        "Expected":  "Silent escalation (same day not possible)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Unclear But Not Custom",
+        "Time":  8.05157,
+        "Message":  "mujhe kuch alag chahiye",
+        "Expected":  "Ask for clarification first, don\u0027t escalate immediately",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "What is Caricature?",
+        "Time":  8.0315552,
+        "Message":  "caricature kya hota hai exactly?",
+        "Expected":  "Explain: cartoonish representations made from photos",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Face Match Percentage Query",
+        "Time":  8.0421205,
+        "Message":  "face match kitna percent hota hai AI video mein?",
+        "Expected":  "Explain: AI 70-80%, 2D/3D 100%",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "What Changes Are Possible?",
+        "Time":  8.0447803,
+        "Message":  "video mein kya kya change kar sakte hain?",
+        "Expected":  "Explain: text, song, caricature face; NOT background",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "PDF Only Request",
+        "Time":  8.0368972,
+        "Message":  "mujhe sirf PDF chahiye video nahi chahiye",
+        "Expected":  "Explain: PDF is free with video, but price remains same even for PDF only",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Family Caricature Details",
+        "Time":  8.030494,
+        "Message":  "family caricature mein kitne log add kar sakte hain?",
+        "Expected":  "Explain: max 6 members (couple + parents), extra 799, only in 2D/3D not AI",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Delivery Timeline Questions",
+        "Time":  8.0352067,
+        "Message":  "agar main aaj order karun to kab tak milega?",
+        "Expected":  "1-2 days, faster if you verify quickly",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Payment Method Query",
+        "Time":  8.0903324999999988,
+        "Message":  "payment kaise karna hai?",
+        "Expected":  "Explain: half advance, half after work complete",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Order Process Flow Question",
+        "Time":  10.0501636,
+        "Message":  "order karne ke baad kya process hoti hai?",
+        "Expected":  "Explain: payment → WhatsApp group → designers verify → final payment",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Refund Policy Query",
+        "Time":  8.0924605,
+        "Message":  "agar mujhe pasand nahi aaya to refund milega?",
+        "Expected":  "Yes, full refund if not satisfied, quality guarantee",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Photo Requirements Question",
+        "Time":  8.0339856,
+        "Message":  "photos kaisi honi chahiye?",
+        "Expected":  "Passport-like with smile, not cross-face, good lighting, separate photos OK",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Ready to Order (Implicit)",
+        "Time":  10.0344929,
+        "Message":  "theek hai main order karna chahta hoon 3D video 4 functions ke liye",
+        "Expected":  "Send order placement template with fields for details",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Topic Change Mid-Conversation",
+        "Time":  8.0351058,
+        "Message":  "wait, AI video ke features kya hain?",
+        "Expected":  "Switch topic gracefully, explain AI video features",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Contradicting Previous Statement",
+        "Time":  8.0415649,
+        "Message":  "actually mujhe 2D nahi 3D chahiye",
+        "Expected":  "Acknowledge change, provide 3D information",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Thank You Mid-Conversation",
+        "Time":  6.0495586,
+        "Message":  "thanks for the info",
+        "Expected":  "Acknowledge, ask if anything else needed",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Negative Sentiment",
+        "Time":  8.0316946,
+        "Message":  "yaar mujhe kuch samajh nahi aa raha",
+        "Expected":  "Empathize, offer to explain step by step",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Call Request",
+        "Time":  6.0512812999999994,
+        "Message":  "main aapko call kar sakta hoon?",
+        "Expected":  "Provide call number: 9016302607",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "South Indian Customer (English)",
+        "Time":  8.0412015,
+        "Message":  "Hello, I need invitation video for my wedding",
+        "Expected":  "Respond in English, offer south_india samples",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Punjabi Wedding Request",
+        "Time":  8.044497999999999,
+        "Message":  "Punjabi wedding da video chahida",
+        "Expected":  "Understand intent, offer Punjabi category samples",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Engagement Video Request",
+        "Time":  8.0327945,
+        "Message":  "engagement ke liye video banate ho?",
+        "Expected":  "Yes, offer engagement samples, mention pricing (2000 for AI)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Return After Long Gap",
+        "Time":  8.0882738,
+        "Message":  "Hi, I\u0027m back",
+        "Expected":  "Welcome back, check conversation history, continue naturally",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Asking Same Question Again",
+        "Time":  8.0446641,
+        "Message":  "price batao",
+        "Expected":  "Ask which type again (don\u0027t assume based on old context)",
+        "Status":  "PASS"
+    },
+    {
+        "ValidationDetails":  "",
+        "Name":  "Restart Conversation",
+        "Time":  8.0397819,
+        "Message":  "chalo phir se start karte hain",
+        "Expected":  "Reset gracefully, start fresh greeting",
+        "Status":  "PASS"
+    }
+]

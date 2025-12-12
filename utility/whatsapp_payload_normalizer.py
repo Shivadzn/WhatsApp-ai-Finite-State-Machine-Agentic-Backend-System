@@ -1,6 +1,6 @@
 from config import logger
 
-_logger = logger(__name__)
+logger = logger(__name__)
 
 def normalize_webhook_payload(data: dict) -> dict: 
     if "entry" not in data: return {"Error": "data not valid"}
@@ -15,11 +15,15 @@ def normalize_webhook_payload(data: dict) -> dict:
         msg_id = value["messages"][0]["id"]
         category = value["messages"][0]["type"]
         context = value["messages"][0]["context"] if "context" in value["messages"][0] else None
+        client_phone_id = value["metadata"]["phone_number_id"] # New: Whatsapp Business API phone number ID
+        client_phone = value["metadata"]["display_phone_number"] # New: Whatsapp Business API phone number
 
         if category == "text":
             message = value["messages"][0]["text"]["body"]
             return {
             "class": "text",
+            "client_phone": client_phone, # New: Whatsapp Business API phone number
+            "client_phone_id": client_phone_id, # New: Whatsapp Business API phone number ID
             "category": None,
             "type": "inbound",
             "timestamp": value["messages"][0]["timestamp"],
@@ -46,6 +50,8 @@ def normalize_webhook_payload(data: dict) -> dict:
             media_id = media["id"]
             return {
             "class": "media",
+            "client_phone": client_phone,   # New: Whatsapp Business API phone number
+            "client_phone_id": client_phone_id, # New: Whatsapp Business API phone number ID
             "category": category,   
             "type": "inbound",
             "timestamp": value["messages"][0]["timestamp"],

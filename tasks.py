@@ -302,7 +302,35 @@ celery_app.conf.task_routes = {
         'queue': 'state',
         'routing_key': 'state.sync',
     },
+    'tasks.cleanup_old_media': {
+        'queue': 'maintenance',
+        'routing_key': 'maintenance.cleanup',
+    },
 }
+
+
+@celery_app.task(name='tasks.cleanup_old_media')
+def cleanup_old_media_task():
+    """
+    Scheduled task to cleanup old cached media files
+    Runs daily to remove files older than 7 days
+    """
+    try:
+        from utility.media_cache_manager import get_media_cache
+        
+        _logger.info("Starting scheduled media cleanup...")
+        cache = get_media_cache()
+        cache.cleanup_old_media()
+        
+        # Log statistics after cleanup
+        cache.log_statistics()
+        
+        _logger.info("✅ Scheduled media cleanup completed")
+        return {"status": "success", "message": "Media cleanup completed"}
+    
+    except Exception as e:
+        _logger.error(f"❌ Media cleanup task failed: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 
 
 # Monitoring hooks
