@@ -25,6 +25,7 @@ This system provides an automated customer service solution integrating WhatsApp
 - Persistent state management using PostgreSQL and Redis
 - WhatsApp Business API integration
 - Comprehensive test coverage
+- Multilingual support
 
 ---
 
