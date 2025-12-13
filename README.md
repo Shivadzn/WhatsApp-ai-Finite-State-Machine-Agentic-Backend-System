@@ -1,4 +1,4 @@
-#  WhatsApp-ai Finite State Machine Agentic Backend System
+#  WhatsApp AI Backend
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688.svg)](https://fastapi.tiangolo.com/)
@@ -6,7 +6,6 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-latest-FF6F00.svg)](https://langchain-ai.github.io/langgraph/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791.svg)](https://www.postgresql.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 
 Production-ready customer service backend for WhatsApp Business with AI-powered conversations and human operator handoff capabilities.
 
@@ -31,11 +30,138 @@ This system provides an automated customer service solution integrating WhatsApp
 
 ## Architecture
 
+### System Overview
+
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#1e293b','primaryTextColor':'#f1f5f9','primaryBorderColor':'#475569','lineColor':'#64748b','secondaryColor':'#334155','tertiaryColor':'#0f172a'}}}%%
+
+flowchart TB
+    subgraph external["External Services"]
+        direction LR
+        user["WhatsApp User"]
+        whatsapp["WhatsApp Business API"]
+    end
+
+    subgraph api["FastAPI Server"]
+        direction TB
+        webhook["/webhook<br/><small>Message Reception</small>"]
+        health["/health<br/><small>System Status</small>"]
+        
+        subgraph operator_api["Operator Endpoints"]
+            takeover["/api/v1/takeover<br/><small>Assume Control</small>"]
+            opmsg["/api/v1/operator-message<br/><small>Send Message</small>"]
+            handback["/api/v1/handback<br/><small>Return to AI</small>"]
+        end
+    end
+
+    subgraph celery["Asynchronous Processing Layer"]
+        direction TB
+        buffer["Message Buffer<br/><small>15-second aggregation window</small>"]
+        
+        subgraph queues["Celery Queues"]
+            direction LR
+            q_msg["messages"]
+            q_state["state"]
+            q_status["status"]
+        end
+        
+        processor["Message Processor<br/><small>Background Task</small>"]
+    end
+
+    subgraph langgraph["LangGraph State Machine"]
+        direction TB
+        
+        decision{"Operator<br/>Control Active?"}
+        
+        subgraph ai_flow["AI Processing"]
+            agent["AI Agent<br/><small>Google Gemini</small>"]
+            tools["Tool Executor"]
+            tool_media["RespondWithMedia<br/><small>Send Samples</small>"]
+            tool_escalate["RequestIntervention<br/><small>Human Handoff</small>"]
+        end
+        
+        state_mgmt["State Manager<br/><small>Conversation Context</small>"]
+    end
+
+    subgraph data["Persistence Layer"]
+        direction LR
+        postgres[("PostgreSQL<br/><small>Conversation History</small>")]
+        redis[("Redis<br/><small>Session Cache</small>")]
+    end
+
+    subgraph operator["Human Operator Interface"]
+        direction TB
+        op_human["Operator"]
+        op_dash["Dashboard<br/><small>Monitoring & Control</small>"]
+    end
+
+    subgraph output["Response Handler"]
+        direction TB
+        sender["WhatsApp Sender<br/><small>Message Delivery</small>"]
+        logger["Response Logger<br/><small>Audit Trail</small>"]
+    end
+
+    user -->|"1. Send Message"| whatsapp
+    whatsapp -->|"2. Webhook POST"| webhook
+    webhook -->|"3. Queue"| buffer
+    buffer -->|"4. Aggregate"| q_msg
+    q_msg -->|"5. Process"| processor
+    
+    processor -->|"6. Load Context"| redis
+    processor -->|"7. Route"| decision
+    
+    decision -->|"AI Mode"| agent
+    agent -->|"8a. Generate"| state_mgmt
+    agent -->|"8b. Execute"| tools
+    tools --> tool_media
+    tools --> tool_escalate
+    tool_media -->|"Media Response"| sender
+    tool_escalate -->|"Alert"| op_dash
+    
+    decision -->|"Operator Mode"| state_mgmt
+    state_mgmt -->|"Silent"| logger
+    
+    state_mgmt -->|"Persist"| postgres
+    state_mgmt -->|"Cache"| redis
+    state_mgmt -->|"Response"| sender
+    
+    op_human -->|"Monitor"| op_dash
+    op_dash -->|"Takeover"| takeover
+    takeover -->|"Enable Control"| state_mgmt
+    op_human -->|"Message"| opmsg
+    opmsg -->|"Send as Operator"| sender
+    op_human -->|"Release"| handback
+    handback -->|"Return to AI"| state_mgmt
+    
+    sender -->|"9. Deliver"| whatsapp
+    whatsapp -->|"10. Receive"| user
+    sender -->|"Log"| logger
+    logger -->|"Store"| postgres
+    
+    health -.->|"Check"| postgres
+    health -.->|"Check"| redis
+    health -.->|"Check"| q_msg
+
+    classDef externalStyle fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff,font-weight:bold
+    classDef apiStyle fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#fff
+    classDef celeryStyle fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    classDef aiStyle fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    classDef dataStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
+    classDef operatorStyle fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    classDef outputStyle fill:#14b8a6,stroke:#0d9488,stroke-width:2px,color:#fff
+    classDef decisionStyle fill:#f97316,stroke:#ea580c,stroke-width:3px,color:#fff
+
+    class user,whatsapp externalStyle
+    class webhook,health,takeover,opmsg,handback apiStyle
+    class buffer,q_msg,q_state,q_status,processor celeryStyle
+    class agent,tools,tool_media,tool_escalate,state_mgmt aiStyle
+    class postgres,redis dataStyle
+    class op_human,op_dash operatorStyle
+    class sender,logger outputStyle
+    class decision decisionStyle
 ```
-WhatsApp ↔ FastAPI ↔ Celery ↔ LangGraph + Gemini
-                ↓       ↓
-           PostgreSQL  Redis
-```
+
+### Component Description
 
 **Core Components:**
 - **FastAPI**: HTTP API server
